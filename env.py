@@ -34,15 +34,6 @@ class DroneEnv:
                                       rgbaColor=[0.2, 0.2, 0.8, 1])
             self._drone_id = p.createMultiBody(0.5, col, vis, [0, 0, 1])
 
-        # Colored landmark cubes at ±1.5m
-        colors = [[1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1], [1, 1, 0, 1]]
-        positions = [[1.5, 0, 0.2], [-1.5, 0, 0.2], [0, 1.5, 0.2], [0, -1.5, 0.2]]
-        for pos, col in zip(positions, colors):
-            col_shape = p.createCollisionShape(p.GEOM_BOX, halfExtents=[0.15, 0.15, 0.2])
-            vis_shape = p.createVisualShape(p.GEOM_BOX, halfExtents=[0.15, 0.15, 0.2],
-                                            rgbaColor=col)
-            p.createMultiBody(0, col_shape, vis_shape, pos)
-
         self._state = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
         obs = self._render()
         return self._state.copy(), obs

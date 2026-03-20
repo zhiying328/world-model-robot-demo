@@ -21,13 +21,19 @@ def sinusoidal_flight_path(t):
     )
 
 
-def annotate_frame(img_arr, lines):
+def annotate_frame(img_arr, lines, header_color=(255, 220, 0)):
     img = Image.fromarray(img_arr)
     draw = ImageDraw.Draw(img)
-    y = 4
-    for line in lines:
-        draw.text((4, y), line, fill=(255, 255, 255))
-        y += 12
+    line_h = 13
+    pad = 3
+    box_h = len(lines) * line_h + pad * 2
+    # Dark background strip behind text
+    draw.rectangle([0, 0, 128, box_h], fill=(20, 20, 20))
+    y = pad
+    for i, line in enumerate(lines):
+        color = header_color if i == 0 else (220, 220, 220)
+        draw.text((4, y), line, fill=color)
+        y += line_h
     return np.array(img)
 
 
