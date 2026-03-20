@@ -27,7 +27,6 @@ def annotate_frame(img_arr, lines, header_color=(255, 220, 0)):
     line_h = 13
     pad = 3
     box_h = len(lines) * line_h + pad * 2
-    # Dark background strip behind text
     draw.rectangle([0, 0, 128, box_h], fill=(20, 20, 20))
     y = pad
     for i, line in enumerate(lines):
@@ -37,7 +36,7 @@ def annotate_frame(img_arr, lines, header_color=(255, 220, 0)):
     return np.array(img)
 
 
-def make_composite(real_obs, imagined_obs, state, action, next_state):
+def make_composite(real_obs, imagined_obs, state, action, next_state, wm_next_state):
     real_lines = [
         "REAL ENV",
         f"pos {state[0]:.2f} {state[1]:.2f} {state[2]:.2f}",
@@ -46,12 +45,17 @@ def make_composite(real_obs, imagined_obs, state, action, next_state):
     ]
     imag_lines = [
         "WORLD MODEL",
-        f"nxt {next_state[0]:.2f} {next_state[1]:.2f} {next_state[2]:.2f}",
-        "(RSSM+Decoder)",
+        f"pred {wm_next_state[0]:.2f} {wm_next_state[1]:.2f} {wm_next_state[2]:.2f}",
+        f"real {next_state[0]:.2f} {next_state[1]:.2f} {next_state[2]:.2f}",
     ]
-    real_ann = annotate_frame(real_obs, real_lines)
-    imag_ann = annotate_frame(imagined_obs, imag_lines)
-    composite = np.concatenate([real_ann, imag_ann], axis=1)  # [128, 256, 3]
+    real_ann = annotate_frame(real_obs, real_lines, header_color=(100, 220, 100))
+    imag_ann = annotate_frame(imagined_obs, imag_lines, header_color=(255, 180, 60))
+
+    # Thin vertical divider
+    divider = np.zeros((128, 2, 3), dtype=np.uint8)
+    divider[:] = [80, 80, 80]
+
+    composite = np.concatenate([real_ann, divider, imag_ann], axis=1)  # [128, 258, 3]
     return composite
 
 
@@ -67,10 +71,15 @@ trajectory = []
 for t in range(T):
     action = sinusoidal_flight_path(t)
 
-    z_next, imagined_obs = wm.predict(obs, action)
+    # World model: predict next state (simplified physics, no velocity memory)
+    wm_next_state = wm.predict(state, action)
+    # Render imagined scene at predicted position
+    imagined_obs = env.render_at_pos(wm_next_state[:3])
+
+    # Real env step
     next_state, next_obs = env.step(action)
 
-    composite = make_composite(obs, imagined_obs, state, action, next_state)
+    composite = make_composite(obs, imagined_obs, state, action, next_state, wm_next_state)
     frames.append(composite)
 
     entry = {
@@ -78,13 +87,13 @@ for t in range(T):
         "state": state.tolist(),
         "action": action.tolist(),
         "next_state": next_state.tolist(),
+        "wm_predicted": wm_next_state.tolist(),
     }
     trajectory.append(entry)
 
     print(
-        f"t={t:02d} | state=[{state[0]:.2f},{state[1]:.2f},{state[2]:.2f}]"
-        f" | action=[{action[0]:.2f},{action[1]:.2f},{action[2]:.2f}]"
-        f" | next_state=[{next_state[0]:.2f},{next_state[1]:.2f},{next_state[2]:.2f}]"
+        f"t={t:02d} | real=[{next_state[0]:.2f},{next_state[1]:.2f},{next_state[2]:.2f}]"
+        f" | pred=[{wm_next_state[0]:.2f},{wm_next_state[1]:.2f},{wm_next_state[2]:.2f}]"
     )
 
     obs = next_obs

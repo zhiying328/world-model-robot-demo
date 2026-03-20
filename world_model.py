@@ -1,53 +1,31 @@
-import torch
 import numpy as np
-from PIL import Image
-
-from models.encoder import Encoder
-from models.rssm import RSSM
-from models.decoder import Decoder
 
 
 class WorldModel:
-    def __init__(self, device="cpu"):
-        self.device = device
-        self.encoder = Encoder().to(device)
-        self.rssm = RSSM().to(device)
-        self.decoder = Decoder().to(device)
+    """
+    Simplified kinematic world model.
+    Real env accumulates velocity across steps; this model treats each step
+    independently (no velocity memory), causing visible drift over time.
+    """
 
-        self.encoder.eval()
-        self.rssm.eval()
-        self.decoder.eval()
-
-        self._h = torch.zeros(1, 1, 128).to(device)
-        self._z = None
+    def __init__(self, dt=0.05):
+        self._dt = dt
 
     def reset(self):
-        self._h = torch.zeros(1, 1, 128).to(self.device)
-        self._z = None
+        pass
 
-    def predict(self, obs, action):
+    def predict(self, state, action):
         """
-        obs:    np.array [H, W, 3] uint8
-        action: np.array [3]
-        Returns: (z_next tensor [1, 128], imagined_obs np.array [128, 128, 3] uint8)
+        state:  np.array [x, y, z, vx, vy, vz]
+        action: np.array [ax, ay, az]
+        Returns predicted next_state [x, y, z, vx, vy, vz]
         """
-        with torch.no_grad():
-            obs_t = torch.tensor(obs / 255.0, dtype=torch.float32)
-            obs_t = obs_t.permute(2, 0, 1).unsqueeze(0).to(self.device)  # [1, 3, H, W]
-            z = self.encoder(obs_t)  # [1, 128]
+        x, y, z = state[0], state[1], state[2]
+        ax, ay, az = action[0], action[1], action[2]
 
-            action_t = torch.tensor(action, dtype=torch.float32).unsqueeze(0).to(self.device)  # [1, 3]
-            z_next, self._h = self.rssm(z, action_t, self._h)  # [1, 128]
+        # Simplified: ignores velocity history, only uses action directly
+        x_next = x + ax * self._dt
+        y_next = y + ay * self._dt
+        z_next = max(z + az * self._dt, 0.1)
 
-            recon = self.decoder(z_next)  # [1, 3, H', W']
-            recon_np = recon.squeeze(0).permute(1, 2, 0).cpu().numpy()
-            recon_np = (recon_np * 255).clip(0, 255).astype(np.uint8)
-
-            # Resize to 128x128 to match real obs
-            img = Image.fromarray(recon_np)
-            img = img.resize((128, 128), Image.BILINEAR)
-            imagined_obs = np.array(img)
-
-            self._z = z_next
-
-        return z_next, imagined_obs
+        return np.array([x_next, y_next, z_next, ax * self._dt, ay * self._dt, az * self._dt])
