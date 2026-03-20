@@ -27,22 +27,3 @@
 pip install pybullet numpy imageio
 
 python main.py
-
-
-
-\##输出结果
-
-output/drone\_demo.gif
-
-
-
-\##项目结构
-
-main.py：主程序
-
-env.py：环境
-
-world\_model.py：世界模型
-
-render.py：渲染
-

@@ -1,16 +1,90 @@
 import pybullet as p
 import pybullet_data
+import numpy as np
 
-def create_env(gui=False):
-    if gui:
-        p.connect(p.GUI)
-    else:
-        p.connect(p.DIRECT)
 
-    p.setAdditionalSearchPath(pybullet_data.getDataPath())
-    p.setGravity(0, 0, -9.8)
+class DroneEnv:
+    def __init__(self, gui=False):
+        if gui:
+            self._client = p.connect(p.GUI)
+        else:
+            self._client = p.connect(p.DIRECT)
 
-    plane = p.loadURDF("plane.urdf")
-    drone = p.loadURDF("sphere2.urdf", [0, 0, 1])  # 用球当无人机
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        p.setGravity(0, 0, -9.8)
 
-    return drone
+        self._drone_id = None
+        self._state = np.zeros(6)
+        self._dt = 0.05
+
+    def reset(self):
+        p.resetSimulation()
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        p.setGravity(0, 0, -9.8)
+
+        # Floor
+        p.loadURDF("plane.urdf")
+
+        # Drone - try quadrotor.urdf, fallback to box
+        try:
+            self._drone_id = p.loadURDF("quadrotor.urdf", [0, 0, 1])
+        except Exception:
+            col = p.createCollisionShape(p.GEOM_BOX, halfExtents=[0.15, 0.15, 0.05])
+            vis = p.createVisualShape(p.GEOM_BOX, halfExtents=[0.15, 0.15, 0.05],
+                                      rgbaColor=[0.2, 0.2, 0.8, 1])
+            self._drone_id = p.createMultiBody(0.5, col, vis, [0, 0, 1])
+
+        # Colored landmark cubes at ±1.5m
+        colors = [[1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1], [1, 1, 0, 1]]
+        positions = [[1.5, 0, 0.2], [-1.5, 0, 0.2], [0, 1.5, 0.2], [0, -1.5, 0.2]]
+        for pos, col in zip(positions, colors):
+            col_shape = p.createCollisionShape(p.GEOM_BOX, halfExtents=[0.15, 0.15, 0.2])
+            vis_shape = p.createVisualShape(p.GEOM_BOX, halfExtents=[0.15, 0.15, 0.2],
+                                            rgbaColor=col)
+            p.createMultiBody(0, col_shape, vis_shape, pos)
+
+        self._state = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+        obs = self._render()
+        return self._state.copy(), obs
+
+    def step(self, action):
+        action = np.array(action, dtype=np.float32)
+        x, y, z, vx, vy, vz = self._state
+
+        # Gravity-compensated kinematic update
+        ax, ay, az = action[0], action[1], action[2]
+        vx += ax * self._dt
+        vy += ay * self._dt
+        vz += az * self._dt
+
+        vx = np.clip(vx, -2.0, 2.0)
+        vy = np.clip(vy, -2.0, 2.0)
+        vz = np.clip(vz, -1.0, 1.0)
+
+        x += vx * self._dt
+        y += vy * self._dt
+        z += vz * self._dt
+        z = max(z, 0.1)
+
+        self._state = np.array([x, y, z, vx, vy, vz])
+        p.resetBasePositionAndOrientation(self._drone_id, [x, y, z], [0, 0, 0, 1])
+
+        obs = self._render()
+        return self._state.copy(), obs
+
+    def _render(self):
+        x, y, z = self._state[:3]
+        eye = [x + 2.0, y + 2.0, z + 1.5]
+        target = [x, y, z]
+
+        width, height, rgba, _, _ = p.getCameraImage(
+            width=128,
+            height=128,
+            viewMatrix=p.computeViewMatrix(eye, target, [0, 0, 1]),
+            projectionMatrix=p.computeProjectionMatrixFOV(60, 1, 0.1, 20),
+        )
+        img = np.array(rgba, dtype=np.uint8).reshape(height, width, 4)
+        return img[:, :, :3]
+
+    def close(self):
+        p.disconnect()
